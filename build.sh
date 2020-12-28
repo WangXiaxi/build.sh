@@ -38,16 +38,34 @@ clone_code_model() {
     cd ${clone_path}
     if [[ ${1} == "hscg" ]]; then
         echo -e "${Tip}--[路径] git clone ${3} ${git_address}/${2} ${clone_path}/${1}"
-
-        git clone -b ${3} ${git_address}/${2} ${clone_path}/${1}
+        clone_logs=$(git clone -b ${3} ${git_address}/${2} ${clone_path}/${1} 2>&1)
+        # 第一行信息中存在 already exists 说明已经拉取或者是空路径
+        if [[ "$clone_logs | tail 1" == *exists* ]]; then
+            echo -e "${Tip} 代码已经拉取过了直接pull....."
+        elif [[ "$clone_logs | tail 1" == *fatal* ]]; then
+            echo -e "${Error} 代码拉取失败....."
+            echo "失败日志如下："
+            echo ${clone_logs} && exit 1
+        fi
         sleep 1
         cd ${clone_path}/${1}
         sleep 1
         # git 需要pull下不然会炸
-        git pull
+        pull_logs=$(git pull 2>&1)
+        if [[ "$pull_logs | tail 1" == *fatal* ]]; then
+            echo -e "${Error} 代码拉取失败....."
+            echo "失败日志如下："
+            echo ${pull_logs} && exit 1
+        fi
     else
         echo -e "${Tip}--[路径] svn co ${svn_address}/${2} ${clone_path}/${1}"
-        svn co ${svn_address}/${2} ${clone_path}/${1}
+        svn_logs=$(svn co ${svn_address}/${2} ${clone_path}/${1} 2>&1)
+        # svn错误码都是e175xxx
+        if [[ "$svn_logs | tail 1" == *E175* ]]; then
+            echo -e "${Error} 代码拉取失败....."
+            echo "失败日志如下："
+            echo ${svn_logs} && exit 1
+        fi
     fi
     echo -e "${Info} 成功拉取 ${1} 代码....."
 }
@@ -77,10 +95,10 @@ clone_code() {
     elif [[ ${1} == "data" && ${2} == "test" ]]; then
         model="branches/mro-full-screen_test"
     # git 项目
-    elif [[ ${1} == "hscg" ]]; then
+    elif [[ ${1} == "hscg" && (${2} == "master" || ${2} == "test") ]]; then
         model="mro-bidding-admin.git"
     else
-        echo -e "${Tip} ${1} 或 ${12} 项目名或分支错了，mmp菜狗！"
+        echo -e "${Tip} ${1} 或 ${2} 项目名或分支错了，mmp菜狗！" && exit 1
     fi
     # 执行拉去代码
     clone_code_model ${1} ${model} ${2}
@@ -106,7 +124,7 @@ build_code() {
     fi
 
     # yarn run build
-    echo " "
+    echo -e "${Info} yarn run build 打包中....."
     build_logs=$(yarn run build:${evn} --report 2>&1)
     if [[ "$build_logs | tail -1" == *Done* ]]; then
         echo -e "${Info} 构建 ${1} 模块 成功....."
@@ -128,12 +146,13 @@ backups_old_code() {
 copy_code_model() {
     echo -e "${Tip} 开始复制 ${1} 模块静态文件....."
     # 先创建文件夹，如果不存在的话
-    mkdir -p ${web_path}/${1}
+    mkdir -p ${web_path}/${2}
     # 删除原文件内容
-    rm -rf ${web_path}/${1}/*
+    rm -rf ${web_path}/${2}/*
+    echo -e "${Tip} 删除 ${web_path}/${2}/ 模块静态文件成功....."
     # 移动最新前端文件到web目录
-    cp -a ${clone_path}/${2}/* ${web_path}/${1}/
-    echo -e "${Info} 成功复制 ${1} 模块静态文件....."
+    cp -a ${clone_path}/${1}/dist/* ${web_path}/${2}/
+    echo -e "${Info} 成功复制 ${clone_path}/${1}/dist/ 模块静态文件至 ${web_path}/${2}/ 中....."
 }
 
 # 复制代码
@@ -147,7 +166,7 @@ copy_code() {
     elif [[ ${1} == "data" ]]; then
         copy_code_model ${1} "${1}/dist"
     elif [[ ${1} == "hscg" ]]; then
-        copy_code_model ${1} "${1}"
+        copy_code_model ${1} ${1}
     fi
 }
 
